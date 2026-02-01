@@ -1,0 +1,59 @@
+# 부업 블로그 글쓰기 도우미
+
+## 프로젝트 개요
+N잡러를 위한 블로그 글 생성 도구. 사용자의 경험과 상황을 입력받아 AI가 블로그 글 초안을 작성해준다.
+
+## 기술 스택
+- **Framework**: Next.js 16 (App Router)
+- **Styling**: Tailwind CSS v4 + Shadcn/ui
+- **AI**: Vercel AI SDK + Google Gemini (기본) / OpenAI GPT-4o (선택)
+
+## 핵심 파일
+- `src/app/page.tsx` - 메인 UI (글 유형 선택, 입력, 결과 표시, AI 추천 파싱)
+- `src/app/api/generate/route.ts` - 글 생성 API (스트리밍)
+- `src/lib/ai-config.ts` - AI 프롬프트 및 설정
+
+## 글 유형
+1. **부업 도전기** (challenge) - 부업 경험담, 후기, 수익 공개
+2. **정보/가이드** (info) - 경험 기반 방법론, 팁, 노하우
+3. **일상/에세이** (daily) - 일상 기록, 생각 정리
+4. **전자책** (ebook) - 유료 전자책용 챕터 작성 (워크북 포함)
+
+## 주요 기능
+- 글 유형별 맞춤 프롬프트
+- 네이버 SEO 최적화 (키워드 배치, 소제목 구조화)
+- 제목/키워드 자동 추출 및 복사
+- **복사 시 HTML 태그 제거** (순수 텍스트만 복사)
+- 이미지 추천 가이드
+
+### 전자책 전용 기능
+- 워크북 섹션 필수 포함 (자기 점검 질문, 실천 과제)
+- **AI 추천 기능**:
+  - 추천 프레임워크 (단계별 구조 분석)
+  - 보완 포인트 (입력 내용 + 본문 기반 분석)
+  - 추천 이미지 (내용 기반 동적 추천)
+
+## 프롬프트 규칙
+- 이모지 사용 최소화 (전체 1-2개 이하, 전자책은 Cheat Key/워크북 제목에만)
+- 사용자가 제공한 경험만 기반으로 작성
+- 저작권/정책 위반 조언 금지
+- HTML 형식 출력 (마크다운 금지)
+
+## 환경변수
+```
+AI_PROVIDER=google
+GOOGLE_GENERATIVE_AI_API_KEY=xxx
+OPENAI_API_KEY=xxx (선택)
+```
+
+## 실행
+```bash
+npm install
+npm run dev
+# http://localhost:3000
+```
+
+## 배포
+Vercel 자동 배포 설정됨 (GitHub 연동)
+- main 브랜치 푸시 시 자동 배포
+- 수동 배포: `npx vercel`
