@@ -123,9 +123,9 @@ const parseAISuggestions = (content: string): { body: string; suggestions: AISug
   const body = content.substring(0, markerIndex).trim();
   const suggestionsText = content.substring(markerIndex + marker.length);
 
-  const frameworkMatch = suggestionsText.match(/FRAMEWORK:\s*(.+?)(?=\n|IMPROVE:|IMAGES:|$)/s);
-  const improveMatch = suggestionsText.match(/IMPROVE:\s*(.+?)(?=\n|FRAMEWORK:|IMAGES:|$)/s);
-  const imagesMatch = suggestionsText.match(/IMAGES:\s*(.+?)(?=\n|FRAMEWORK:|IMPROVE:|$)/s);
+  const frameworkMatch = suggestionsText.match(/FRAMEWORK:\s*([\s\S]+?)(?=IMPROVE:|IMAGES:|$)/);
+  const improveMatch = suggestionsText.match(/IMPROVE:\s*([\s\S]+?)(?=FRAMEWORK:|IMAGES:|$)/);
+  const imagesMatch = suggestionsText.match(/IMAGES:\s*([\s\S]+?)(?=FRAMEWORK:|IMPROVE:|$)/);
 
   const framework = frameworkMatch?.[1]?.trim();
   const improve = improveMatch?.[1]?.trim();
