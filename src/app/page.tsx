@@ -25,11 +25,15 @@ import {
   RefreshCw,
   Hash,
   Type,
+  BookText,
+  Lightbulb,
+  Layers,
+  PenLine,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // 글 유형 정의
-type PostType = "challenge" | "info" | "daily";
+type PostType = "challenge" | "info" | "daily" | "ebook";
 
 const POST_TYPES = {
   challenge: {
@@ -64,7 +68,27 @@ const POST_TYPES = {
       context: "요즘 퇴근하고 2시간씩 부업하는데 피곤하지만 뿌듯함. 작은 성과라도 있으면 힘이 남.",
     },
   },
+  ebook: {
+    name: "전자책",
+    emoji: "📖",
+    icon: BookText,
+    description: "유료 전자책용 챕터 작성 (워크북 포함)",
+    placeholder: {
+      keyword: "업무 인수분해 기술",
+      context:
+        "도매 플랫폼 총괄 맡았을 때 사수도 인수인계서도 없었음. Why-Output-Task 3단계로 쪼개서 한 달 만에 첫 주문 성공. 개발팀은 명확한 Task 덕에 속도 냈고, 영업팀은 눈에 보이는 결과물에 신뢰하기 시작.",
+    },
+  },
 };
+
+// 전자책 내용 추천 가이드
+const EBOOK_CONTENT_RECOMMENDATIONS = [
+  "실패 경험과 극복 과정이 있으면 신뢰도가 높아져요",
+  "구체적인 숫자/기간을 넣으면 설득력이 올라가요",
+  "독자가 바로 적용할 수 있는 액션 아이템을 포함하세요",
+  "\"좋은 예 vs 나쁜 예\" 대비 구조가 이해를 도와요",
+  "비유나 스토리텔링으로 개념을 풀어주세요",
+];
 
 const IMAGE_RECOMMENDATIONS: Record<PostType, string[]> = {
   challenge: [
@@ -74,6 +98,47 @@ const IMAGE_RECOMMENDATIONS: Record<PostType, string[]> = {
   ],
   info: ["단계별 진행 스크린샷", "설정 화면 캡처", "예시 이미지"],
   daily: ["직접 찍은 일상 사진", "오늘의 풍경/음식", "감성 소품 사진"],
+  ebook: ["개념 설명 다이어그램", "단계별 프로세스 도식", "워크시트 이미지"],
+};
+
+// AI 추천 타입
+interface AISuggestions {
+  framework: string | null;
+  improve: string | null;
+  images: string[];
+}
+
+// AI 추천 파싱 함수
+const parseAISuggestions = (content: string): { body: string; suggestions: AISuggestions } => {
+  const marker = "<!-- AI_SUGGESTIONS -->";
+  const markerIndex = content.indexOf(marker);
+
+  if (markerIndex === -1) {
+    return {
+      body: content,
+      suggestions: { framework: null, improve: null, images: [] }
+    };
+  }
+
+  const body = content.substring(0, markerIndex).trim();
+  const suggestionsText = content.substring(markerIndex + marker.length);
+
+  const frameworkMatch = suggestionsText.match(/FRAMEWORK:\s*(.+?)(?=\n|IMPROVE:|IMAGES:|$)/s);
+  const improveMatch = suggestionsText.match(/IMPROVE:\s*(.+?)(?=\n|FRAMEWORK:|IMAGES:|$)/s);
+  const imagesMatch = suggestionsText.match(/IMAGES:\s*(.+?)(?=\n|FRAMEWORK:|IMPROVE:|$)/s);
+
+  const framework = frameworkMatch?.[1]?.trim();
+  const improve = improveMatch?.[1]?.trim();
+  const imagesRaw = imagesMatch?.[1]?.trim();
+
+  return {
+    body,
+    suggestions: {
+      framework: framework && framework !== "없음" ? framework : null,
+      improve: improve || null,
+      images: imagesRaw ? imagesRaw.split(",").map(s => s.trim()).filter(Boolean) : []
+    }
+  };
 };
 
 export default function Home() {
@@ -159,10 +224,41 @@ export default function Home() {
     return variations.slice(0, 5);
   };
 
+  // HTML을 순수 텍스트로 변환 (줄바꿈 유지)
+  const htmlToPlainText = (html: string) => {
+    let text = html;
+    // 제목 태그 앞뒤로 줄바꿈
+    text = text.replace(/<h[1-6][^>]*>/gi, "\n\n");
+    text = text.replace(/<\/h[1-6]>/gi, "\n");
+    // p 태그 뒤에 줄바꿈
+    text = text.replace(/<p[^>]*>/gi, "");
+    text = text.replace(/<\/p>/gi, "\n\n");
+    // li 태그를 "- "로 변환
+    text = text.replace(/<li[^>]*>/gi, "- ");
+    text = text.replace(/<\/li>/gi, "\n");
+    // br 태그를 줄바꿈으로
+    text = text.replace(/<br\s*\/?>/gi, "\n");
+    // 나머지 태그 제거
+    text = text.replace(/<[^>]*>/g, "");
+    // HTML 엔티티 디코딩
+    text = text.replace(/&nbsp;/g, " ");
+    text = text.replace(/&amp;/g, "&");
+    text = text.replace(/&lt;/g, "<");
+    text = text.replace(/&gt;/g, ">");
+    text = text.replace(/&quot;/g, '"');
+    // 연속 줄바꿈 정리 (3개 이상 → 2개)
+    text = text.replace(/\n{3,}/g, "\n\n");
+    // 앞뒤 공백 제거
+    return text.trim();
+  };
+
   // 복사 함수들
   const handleCopyContent = async () => {
     try {
-      await navigator.clipboard.writeText(generatedContent);
+      // AI 추천 부분 제외하고 본문만 복사
+      const { body } = parseAISuggestions(generatedContent);
+      const plainText = htmlToPlainText(body);
+      await navigator.clipboard.writeText(plainText);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch (err) {
@@ -197,6 +293,14 @@ export default function Home() {
   const currentType = POST_TYPES[postType];
   const extractedTitle = extractTitle();
   const recommendedKeywords = generateKeywords();
+
+  // AI 추천 파싱 (전자책)
+  const { body: parsedBody, suggestions: aiSuggestions } = parseAISuggestions(generatedContent);
+
+  // 전자책이고 AI 추천 이미지가 있으면 사용, 아니면 기본 추천
+  const displayImages = postType === "ebook" && aiSuggestions.images.length > 0
+    ? aiSuggestions.images
+    : IMAGE_RECOMMENDATIONS[postType];
 
   return (
     <div className="min-h-screen bg-background">
@@ -291,6 +395,24 @@ export default function Home() {
                     구체적으로 쓸수록 좋은 글이 나와요
                   </p>
                 </div>
+
+                {/* 전자책 내용 추천 가이드 */}
+                {postType === "ebook" && (
+                  <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Lightbulb className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium">이런 내용을 추가하면 좋아요</span>
+                    </div>
+                    <ul className="space-y-1">
+                      {EBOOK_CONTENT_RECOMMENDATIONS.map((rec, idx) => (
+                        <li key={idx} className="text-xs text-muted-foreground flex items-start gap-1">
+                          <span className="text-primary mt-0.5">•</span>
+                          <span>{rec}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {error && (
                   <p className="text-sm text-destructive">{error}</p>
@@ -425,10 +547,42 @@ export default function Home() {
                     {/* 스타일이 적용된 미리보기 */}
                     <div
                       className="blog-preview p-6 bg-white dark:bg-zinc-900 rounded-lg border overflow-auto max-h-[600px]"
-                      dangerouslySetInnerHTML={{ __html: generatedContent }}
+                      dangerouslySetInnerHTML={{ __html: parsedBody }}
                     />
                   </CardContent>
                 </Card>
+
+                {/* AI 추천 (전자책일 때만) */}
+                {postType === "ebook" && (aiSuggestions.framework || aiSuggestions.improve) && (
+                  <Card className="border-primary/30 bg-primary/5">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4 text-primary" />
+                        <CardTitle className="text-sm">AI 추천</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {aiSuggestions.framework && (
+                        <div className="flex items-start gap-2">
+                          <Layers className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-xs font-medium text-primary">추천 프레임워크</p>
+                            <p className="text-sm">{aiSuggestions.framework}</p>
+                          </div>
+                        </div>
+                      )}
+                      {aiSuggestions.improve && (
+                        <div className="flex items-start gap-2">
+                          <PenLine className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-xs font-medium text-primary">보완 포인트</p>
+                            <p className="text-sm">{aiSuggestions.improve}</p>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* 이미지 추천 */}
                 <Card>
@@ -436,11 +590,14 @@ export default function Home() {
                     <div className="flex items-center gap-2">
                       <ImageIcon className="w-4 h-4 text-primary" />
                       <CardTitle className="text-sm">추천 이미지</CardTitle>
+                      {postType === "ebook" && aiSuggestions.images.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">AI 추천</Badge>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-2">
-                      {IMAGE_RECOMMENDATIONS[postType].map((rec, idx) => (
+                      {displayImages.map((rec, idx) => (
                         <Badge key={idx} variant="outline">
                           {rec}
                         </Badge>

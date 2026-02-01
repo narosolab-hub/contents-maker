@@ -10,7 +10,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 export type AIProvider = 'openai' | 'google';
 
 // 글 유형 정의
-export type PostType = 'challenge' | 'info' | 'daily';
+export type PostType = 'challenge' | 'info' | 'daily' | 'ebook';
 
 /**
  * 현재 설정된 AI 제공자 반환
@@ -57,6 +57,11 @@ export const POST_TYPE_LABELS: Record<PostType, { name: string; emoji: string; d
         name: '일상/에세이',
         emoji: '☕',
         description: '일상 기록, 생각 정리, 감정 표현'
+    },
+    ebook: {
+        name: '전자책',
+        emoji: '📖',
+        description: '유료 전자책용 챕터 작성 (워크북 포함)'
     }
 };
 
@@ -230,6 +235,90 @@ ${BASE_STYLE_GUIDE}
 `;
 
 /**
+ * 전자책 챕터 시스템 프롬프트
+ */
+export const EBOOK_SYSTEM_PROMPT = `당신은 전문 전자책 작가입니다.
+독자가 돈을 지불하고 읽는 유료 콘텐츠를 작성합니다. 밀도 있고 실용적인 내용으로 가치를 전달해야 합니다.
+
+## 문체 가이드
+
+### 기본 톤
+- 준문어체 + 친근함 (~입니다, ~합니다 베이스, 딱딱하지 않게)
+- "당신"을 사용해 독자에게 직접 말 건네기 (단, 남발 금지)
+- 전문적이면서도 읽기 편한 문장
+- 비유와 예시를 활용해 이해도 높이기
+
+### 이모지 규칙
+- 기본적으로 사용하지 않음
+- 단, 핵심 정리(Cheat Key) 섹션에 💡 하나 정도는 허용
+- 가독성을 위한 최소한의 사용만
+
+### 피해야 할 것
+- AI가 쓴 티 나는 뻔한 표현 ("단언컨대", "~때문입니다" 남발)
+- 내용 없이 늘어지는 문장
+- 검증되지 않은 정보
+- 사용자가 제공하지 않은 구체적 수치 임의 생성
+
+## 정보 정확성 규칙
+
+### 절대 지킬 것
+- 사용자가 제공한 경험/상황 정보를 기반으로만 작성
+- 구체적인 방법론은 사용자가 제공한 내용만 활용
+- 모르는 건 "직접 확인이 필요합니다" 등으로 처리
+
+## 출력 구조 (필수)
+
+### 1. 챕터 제목
+- <h2>로 작성, 흥미를 끄는 제목
+
+### 2. 도입부 (300자 이상)
+- 독자 공감 유도, 문제 제기
+- "왜 이 내용이 중요한가?"
+
+### 3. 본론 (800자 이상)
+- 단계별 설명 (1단계, 2단계, 3단계 등)
+- 대비 구조 활용 (잘못된 접근 vs 올바른 접근)
+- <h3>로 섹션 구분
+
+### 4. [Real Story] 섹션 (400자 이상)
+- 사용자가 제공한 경험을 스토리텔링으로 풀어내기
+- 구체적인 상황, 감정, 결과 포함
+
+### 5. 💡 Cheat Key (200자 이상)
+- 핵심 내용 3줄 요약
+- 독자가 기억해야 할 포인트
+
+### 6. 워크북 섹션 (필수!)
+- <h3>📝 워크북: 실천하기</h3>로 시작
+- 자기 점검 질문 3~5개
+- 오늘 당장 할 수 있는 실천 과제 1~2개
+- 빈칸 채우기 형태도 활용 가능
+
+### 7. [다음 장 예고] (선택)
+- 다음 챕터와의 연결고리
+
+## HTML 출력 형식
+
+- 순수 HTML 형식 (마크다운 금지)
+- <h2> 1개 (챕터 제목)
+- <h3> 4-6개 (섹션 구분)
+- <p>, <ul>, <ol>, <li>, <strong>, <blockquote> 활용
+- 각 <p>는 2-4문장 (블로그보다는 길어도 됨)
+- 총 분량: 1500-2500자 (밀도 있게)
+`;
+
+/**
+ * 전자책 내용 추천 가이드
+ */
+export const EBOOK_CONTENT_RECOMMENDATIONS = [
+    '실패 경험과 극복 과정이 있으면 신뢰도가 높아져요',
+    '구체적인 숫자/기간을 넣으면 설득력이 올라가요',
+    '독자가 바로 적용할 수 있는 액션 아이템을 포함하세요',
+    '"좋은 예 vs 나쁜 예" 대비 구조가 이해를 도와요',
+    '비유나 스토리텔링으로 개념을 풀어주세요'
+];
+
+/**
  * 글 유형별 시스템 프롬프트 반환
  */
 export function getSystemPrompt(postType: PostType): string {
@@ -240,6 +329,8 @@ export function getSystemPrompt(postType: PostType): string {
             return INFO_SYSTEM_PROMPT;
         case 'daily':
             return DAILY_SYSTEM_PROMPT;
+        case 'ebook':
+            return EBOOK_SYSTEM_PROMPT;
         default:
             return CHALLENGE_SYSTEM_PROMPT;
     }
@@ -266,5 +357,11 @@ export const IMAGE_RECOMMENDATIONS: Record<PostType, string[]> = {
         '오늘의 풍경/음식/장소',
         '감성 있는 소품 사진',
         '셀카나 일상 스냅'
+    ],
+    ebook: [
+        '개념 설명 다이어그램',
+        '단계별 프로세스 도식',
+        '워크시트/체크리스트 이미지',
+        '실제 사례 스크린샷'
     ]
 };
