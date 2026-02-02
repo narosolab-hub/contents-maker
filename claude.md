@@ -72,4 +72,9 @@ npm run dev
 ## 배포
 Vercel 자동 배포 설정됨 (GitHub 연동)
 - main 브랜치 푸시 시 자동 배포
-- 수동 배포: `npx vercel`
+- 수동 배포: `npx vercel --prod`
+
+### 배포 시 주의사항
+- **Vercel AI SDK 호환성**: `streamText()` 함수에 `maxTokens` 등 일부 속성이 지원되지 않음. 빌드 에러 발생 시 해당 속성 제거 필요
+- 배포 전 `npm run build`로 로컬에서 빌드 테스트 권장
+- TypeScript 타입 에러가 빌드 실패 원인이 되므로 주의
