@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
             model,
             system: systemPrompt,
             prompt: userPrompt,
-            maxTokens: 4000,
         });
 
         // 스트리밍 응답 반환
