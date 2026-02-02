@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
             model,
             system: systemPrompt,
             prompt: userPrompt,
+            maxTokens: 4000,
         });
 
         // 스트리밍 응답 반환
@@ -64,11 +65,37 @@ export async function POST(request: NextRequest) {
         console.error('글 생성 오류:', error);
 
         const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+        const errorMessageLower = errorMessage.toLowerCase();
 
-        if (errorMessage.includes('API key') || errorMessage.includes('authentication')) {
+        // API 키 오류
+        if (errorMessageLower.includes('api key') || errorMessageLower.includes('authentication') || errorMessageLower.includes('unauthorized')) {
             return NextResponse.json(
                 { error: 'AI API 키가 설정되지 않았거나 유효하지 않습니다. .env.local 파일을 확인해주세요.' },
                 { status: 401 }
+            );
+        }
+
+        // Rate Limit 오류
+        if (errorMessageLower.includes('rate limit') || errorMessageLower.includes('quota') || errorMessageLower.includes('too many requests') || errorMessageLower.includes('429')) {
+            return NextResponse.json(
+                { error: 'AI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (1-2분 후)' },
+                { status: 429 }
+            );
+        }
+
+        // 타임아웃 오류
+        if (errorMessageLower.includes('timeout') || errorMessageLower.includes('timed out') || errorMessageLower.includes('deadline')) {
+            return NextResponse.json(
+                { error: '요청 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.' },
+                { status: 504 }
+            );
+        }
+
+        // 서버 과부하
+        if (errorMessageLower.includes('overloaded') || errorMessageLower.includes('503') || errorMessageLower.includes('service unavailable')) {
+            return NextResponse.json(
+                { error: 'AI 서버가 바쁩니다. 잠시 후 다시 시도해주세요.' },
+                { status: 503 }
             );
         }
 
@@ -109,20 +136,27 @@ ${contextSection}
 - 검증 안 된 정보는 쓰지 말 것
 
 ## HTML 형식 (필수!)
-- 이모지 사용 금지
+- 이모지는 정말 필요할 때만 글 전체에서 1-2개 이하로 최소한 사용
 - 마크다운 금지, HTML만 사용
 - 각 <p> 태그는 2-3문장만 (짧게!)
 - <h2>, <h3>, <p> 사이에 줄바꿈으로 여백 확보
-- 예시:
-<h2>제목</h2>
 
-<p>첫 문단. 짧게 2-3문장.</p>
+## 제목 & 해시태그 (본문 끝에 필수!)
+본문 작성 후 아래 형식으로 추가:
 
-<p>두 번째 문단.</p>
+<!-- TITLES -->
+제목후보1 (예: 미리캔버스 기여자 승인 기간&반려 사유 | 직장인 부업 도전기 #1)
+제목후보2 (예: 미리캔버스 부업 26개 등록 후기 | 초보 기여자의 현실)
+제목후보3 (예: 미리캔버스로 자동 수익 만들기 | 승인 팁&반려 피하는 법)
 
-<h3>소제목</h3>
-
-<p>내용...</p>`;
+<!-- HASHTAGS -->
+#키워드 (띄어쓰기 없이)
+#키워드부업
+#키워드하는법
+#키워드후기
+#직장인부업
+#직장인부업추천
+... (10-15개)`;
 
         case 'info':
             return `다음 주제로 정보/가이드 블로그 글을 작성해주세요.
@@ -146,20 +180,27 @@ ${contextSection}
 - 뻔한 일반론 대신 내 경험 기반의 구체적인 내용만
 
 ## HTML 형식 (필수!)
-- 이모지 사용 금지
+- 이모지는 정말 필요할 때만 글 전체에서 1-2개 이하로 최소한 사용
 - 마크다운 금지, HTML만 사용
 - 각 <p> 태그는 2-3문장만 (짧게!)
 - <h2>, <h3>, <p> 사이에 줄바꿈으로 여백 확보
-- 예시:
-<h2>제목</h2>
 
-<p>첫 문단. 짧게 2-3문장.</p>
+## 제목 & 해시태그 (본문 끝에 필수!)
+본문 작성 후 아래 형식으로 추가:
 
-<p>두 번째 문단. 이렇게 나눠서.</p>
+<!-- TITLES -->
+제목후보1 (예: 미리캔버스 콘텐츠 등록 방법 총정리 | 초보자 가이드)
+제목후보2 (예: 미리캔버스 반려 피하는 법 | 심사 통과 꿀팁)
+제목후보3 (예: 미리캔버스 디자인허브 시작하기 | 실전 등록 노하우)
 
-<h3>소제목</h3>
-
-<p>내용...</p>`;
+<!-- HASHTAGS -->
+#키워드 (띄어쓰기 없이)
+#키워드방법
+#키워드하는법
+#키워드팁
+#직장인부업
+#부업추천
+... (10-15개)`;
 
         case 'daily':
             return `다음 주제로 일상/에세이 블로그 글을 작성해주세요.
@@ -176,20 +217,26 @@ ${contextSection}
 - 내가 제공한 상황만 기반으로 작성
 
 ## HTML 형식 (필수!)
-- 이모지 사용 금지
+- 이모지는 정말 필요할 때만 글 전체에서 1-2개 이하로 최소한 사용
 - 마크다운 금지, HTML만 사용
 - 각 <p> 태그는 2-3문장만 (짧게!)
 - <h2>, <h3>, <p> 사이에 줄바꿈으로 여백 확보
-- 예시:
-<h2>제목</h2>
 
-<p>첫 문단. 짧게.</p>
+## 제목 & 해시태그 (본문 끝에 필수!)
+본문 작성 후 아래 형식으로 추가:
 
-<p>두 번째 문단.</p>
+<!-- TITLES -->
+제목후보1 (감성적인 제목)
+제목후보2 (일상적인 제목)
+제목후보3 (공감가는 제목)
 
-<h3>소제목</h3>
-
-<p>내용...</p>`;
+<!-- HASHTAGS -->
+#키워드 (띄어쓰기 없이)
+#일상
+#에세이
+#직장인일상
+#오늘하루
+... (10-15개)`;
 
         case 'ebook':
             return `다음 주제로 전자책 챕터를 작성해주세요.
@@ -236,11 +283,27 @@ ${contextSection}
 
 ## HTML 형식 (필수!)
 - 마크다운 금지, HTML만 사용
-- 이모지는 Cheat Key, 워크북 제목에만 사용
+- 이모지는 "💡 Cheat Key", "📝 워크북" 제목에만 사용! 그 외 본문에서는 이모지 절대 금지!
 - 각 <p> 태그는 2-4문장
 - <h2>, <h3>, <p> 사이에 줄바꿈으로 여백 확보
 - <ul>, <ol>, <li>, <strong>, <blockquote> 활용
 - 총 분량: 1500~2500자 (밀도 있게)
+
+## 제목 & 해시태그 (AI_SUGGESTIONS 전에 추가!)
+<!-- AI_SUGGESTIONS --> 마커 전에 아래 형식으로 추가:
+
+<!-- TITLES -->
+제목후보1 (예: 업무 인수분해 기술 | 신입도 할 수 있는 일 쪼개기)
+제목후보2 (예: Why-Output-Task 3단계 업무법 | 실전 적용 가이드)
+제목후보3 (예: 인수인계 없이 업무 파악하는 법 | 신입 생존기)
+
+<!-- HASHTAGS -->
+#키워드 (띄어쓰기 없이)
+#전자책
+#자기계발
+#업무스킬
+#직장인성장
+... (10-15개)
 
 ## AI 추천 (본문 끝에 반드시 추가!)
 

@@ -141,6 +141,65 @@ const parseAISuggestions = (content: string): { body: string; suggestions: AISug
   };
 };
 
+// 제목 파싱 함수
+const parseTitles = (content: string): { body: string; titles: string[] } => {
+  const marker = "<!-- TITLES -->";
+  const markerIndex = content.indexOf(marker);
+
+  if (markerIndex === -1) {
+    return { body: content, titles: [] };
+  }
+
+  const body = content.substring(0, markerIndex).trim();
+  const afterMarker = content.substring(markerIndex + marker.length);
+
+  // HASHTAGS 마커가 있으면 그 전까지만
+  const hashtagMarker = "<!-- HASHTAGS -->";
+  const hashtagIndex = afterMarker.indexOf(hashtagMarker);
+  const titlesText = hashtagIndex !== -1
+    ? afterMarker.substring(0, hashtagIndex)
+    : afterMarker;
+
+  // 제목 추출 (빈 줄이 아닌 것들)
+  const titles = titlesText
+    .split(/[\n\r]+/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .slice(0, 3);
+
+  return { body, titles };
+};
+
+// 해시태그 파싱 함수
+const parseHashtags = (content: string): { body: string; hashtags: string[] } => {
+  const marker = "<!-- HASHTAGS -->";
+  const markerIndex = content.indexOf(marker);
+
+  if (markerIndex === -1) {
+    return { body: content, hashtags: [] };
+  }
+
+  const body = content.substring(0, markerIndex).trim();
+  const hashtagsText = content.substring(markerIndex + marker.length);
+
+  // AI_SUGGESTIONS 마커가 있으면 그 전까지만
+  const aiMarker = "<!-- AI_SUGGESTIONS -->";
+  const aiMarkerIndex = hashtagsText.indexOf(aiMarker);
+  const cleanHashtagsText = aiMarkerIndex !== -1
+    ? hashtagsText.substring(0, aiMarkerIndex)
+    : hashtagsText;
+
+  // 해시태그 추출 (#으로 시작하는 것들)
+  const hashtags = cleanHashtagsText
+    .split(/[\n\r]+/)
+    .map(line => line.trim())
+    .filter(line => line.startsWith("#"))
+    .map(tag => tag.replace(/^#/, "").trim())
+    .filter(Boolean);
+
+  return { body, hashtags };
+};
+
 export default function Home() {
   const { setTheme, theme } = useTheme();
 
@@ -166,6 +225,10 @@ export default function Home() {
     setError("");
     setGeneratedContent("");
 
+    // 타임아웃 설정 (60초)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
@@ -175,11 +238,28 @@ export default function Home() {
           keyword: keyword.trim(),
           context: context.trim(),
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "생성 중 오류가 발생했습니다");
+        // JSON 응답인지 확인
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "생성 중 오류가 발생했습니다");
+        } else {
+          // 상태 코드별 에러 메시지
+          if (response.status === 429) {
+            throw new Error("API 요청 한도를 초과했습니다. 1-2분 후 다시 시도해주세요.");
+          } else if (response.status === 503) {
+            throw new Error("AI 서버가 바쁩니다. 잠시 후 다시 시도해주세요.");
+          } else if (response.status === 504) {
+            throw new Error("요청 시간이 초과되었습니다. 다시 시도해주세요.");
+          }
+          throw new Error(`서버 오류 (${response.status})`);
+        }
       }
 
       // 스트리밍 응답 처리
@@ -196,8 +276,17 @@ export default function Home() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "알 수 없는 오류");
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          setError("요청 시간이 초과되었습니다. 다시 시도해주세요.");
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError("알 수 없는 오류가 발생했습니다.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };
@@ -208,20 +297,31 @@ export default function Home() {
     return match ? match[1].replace(/<[^>]*>/g, "") : "";
   };
 
-  // 추천 키워드 생성 (메인 키워드 기반)
-  const generateKeywords = () => {
+  // 추천 키워드 생성 (AI 해시태그 우선, 없으면 메인 키워드 기반 fallback)
+  const generateKeywords = (aiHashtags: string[] = []) => {
+    // AI가 생성한 해시태그가 있으면 그것을 사용
+    if (aiHashtags.length > 0) {
+      return aiHashtags;
+    }
+
+    // fallback: 메인 키워드 기반 생성
     const base = keyword.trim();
     if (!base) return [];
 
+    const baseNoSpace = base.replace(/\s+/g, "");
     const variations = [
-      base,
-      `${base} 후기`,
-      `${base} 방법`,
-      `${base} 수익`,
-      `${base} 현실`,
-      `${base} 팁`,
+      baseNoSpace,
+      `${baseNoSpace}후기`,
+      `${baseNoSpace}하는법`,
+      `${baseNoSpace}수익`,
+      `${baseNoSpace}부업`,
+      "직장인부업",
+      "직장인부업추천",
+      "직장인부수입",
+      "N잡러",
+      "부업추천",
     ];
-    return variations.slice(0, 5);
+    return variations.slice(0, 10);
   };
 
   // HTML을 순수 텍스트로 변환 (줄바꿈 유지)
@@ -266,8 +366,7 @@ export default function Home() {
     }
   };
 
-  const handleCopyTitle = async () => {
-    const title = extractTitle();
+  const handleCopyTitle = async (title: string) => {
     if (title) {
       await navigator.clipboard.writeText(title);
       setIsTitleCopied(true);
@@ -276,7 +375,8 @@ export default function Home() {
   };
 
   const handleCopyKeywords = async () => {
-    const keywords = generateKeywords().join(", ");
+    // 해시태그 형식으로 복사 (#키워드1\n#키워드2...)
+    const keywords = recommendedKeywords.map(kw => `#${kw}`).join("\n");
     await navigator.clipboard.writeText(keywords);
     setIsKeywordsCopied(true);
     setTimeout(() => setIsKeywordsCopied(false), 2000);
@@ -291,11 +391,22 @@ export default function Home() {
   };
 
   const currentType = POST_TYPES[postType];
-  const extractedTitle = extractTitle();
-  const recommendedKeywords = generateKeywords();
 
-  // AI 추천 파싱 (전자책)
-  const { body: parsedBody, suggestions: aiSuggestions } = parseAISuggestions(generatedContent);
+  // 제목 파싱 먼저
+  const { body: bodyWithoutTitles, titles: aiTitles } = parseTitles(generatedContent);
+
+  // 해시태그 파싱
+  const { body: bodyWithoutHashtags, hashtags: aiHashtags } = parseHashtags(bodyWithoutTitles);
+
+  // AI 추천 파싱 (전자책) - 해시태그 제거된 본문에서 파싱
+  const { body: parsedBody, suggestions: aiSuggestions } = parseAISuggestions(bodyWithoutHashtags);
+
+  // 추출된 제목 (AI 제목 우선, 없으면 h2에서 추출)
+  const extractedTitle = extractTitle();
+  const recommendedTitles = aiTitles.length > 0 ? aiTitles : (extractedTitle ? [extractedTitle] : []);
+
+  // 추천 키워드 (AI 해시태그 우선)
+  const recommendedKeywords = generateKeywords(aiHashtags);
 
   // 전자책이고 AI 추천 이미지가 있으면 사용, 아니면 기본 추천
   const displayImages = postType === "ebook" && aiSuggestions.images.length > 0
@@ -443,70 +554,76 @@ export default function Home() {
           <div className="lg:col-span-2 space-y-4">
             {generatedContent ? (
               <>
-                {/* 제목 & 키워드 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* 추출된 제목 */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Type className="w-4 h-4 text-primary" />
-                          <CardTitle className="text-sm">추출된 제목</CardTitle>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCopyTitle}
-                          className="h-7 px-2"
+                {/* 제목 추천 */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <Type className="w-4 h-4 text-primary" />
+                      <CardTitle className="text-sm">추천 제목</CardTitle>
+                      {aiTitles.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">AI 생성</Badge>
+                      )}
+                      {isTitleCopied && (
+                        <span className="text-xs text-green-600">복사됨!</span>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {recommendedTitles.length > 0 ? (
+                      recommendedTitles.map((title, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2 rounded-lg border hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer group"
+                          onClick={() => handleCopyTitle(title)}
                         >
-                          {isTitleCopied ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="font-medium text-sm">
-                        {extractedTitle || "제목을 추출할 수 없습니다"}
-                      </p>
-                    </CardContent>
-                  </Card>
+                          <p className="font-medium text-sm flex-1 pr-2">
+                            <span className="text-muted-foreground mr-2">{idx + 1}.</span>
+                            {title}
+                          </p>
+                          <Copy className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">제목을 추출할 수 없습니다</p>
+                    )}
+                  </CardContent>
+                </Card>
 
-                  {/* 추천 키워드 */}
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Hash className="w-4 h-4 text-primary" />
-                          <CardTitle className="text-sm">추천 키워드</CardTitle>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCopyKeywords}
-                          className="h-7 px-2"
-                        >
-                          {isKeywordsCopied ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </Button>
+                {/* 추천 해시태그 */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Hash className="w-4 h-4 text-primary" />
+                        <CardTitle className="text-sm">추천 해시태그</CardTitle>
+                        {aiHashtags.length > 0 && (
+                          <Badge variant="secondary" className="text-xs">AI 생성</Badge>
+                        )}
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-1">
-                        {recommendedKeywords.map((kw, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">
-                            {kw}
-                          </Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopyKeywords}
+                        className="h-7 px-2"
+                      >
+                        {isKeywordsCopied ? (
+                          <Check className="w-3 h-3" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-1">
+                      {recommendedKeywords.map((kw, idx) => (
+                        <Badge key={idx} variant="secondary" className="text-xs">
+                          #{kw}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* 생성된 본문 */}
                 <Card>
